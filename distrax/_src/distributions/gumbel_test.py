@@ -20,6 +20,7 @@ from absl.testing import parameterized
 import chex
 from distrax._src.distributions import gumbel
 from distrax._src.utils import equivalence
+import jax.experimental
 import jax.numpy as jnp
 import numpy as np
 
@@ -67,11 +68,12 @@ class GumbelTest(equivalence.EquivalenceTest):
       ('float32', jnp.float32),
       ('float64', jnp.float64))
   def test_sample_dtype(self, dtype):
-    dist = self.distrax_cls(
-        loc=jnp.zeros((), dtype), scale=jnp.ones((), dtype))
-    samples = self.variant(dist.sample)(seed=self.key)
-    self.assertEqual(samples.dtype, dist.dtype)
-    chex.assert_type(samples, dtype)
+    with jax.experimental.enable_x64(dtype.dtype.itemsize == 8):
+      dist = self.distrax_cls(
+          loc=jnp.zeros((), dtype), scale=jnp.ones((), dtype))
+      samples = self.variant(dist.sample)(seed=self.key)
+      self.assertEqual(samples.dtype, dist.dtype)
+      chex.assert_type(samples, dtype)
 
   @chex.all_variants
   @parameterized.named_parameters(
@@ -170,17 +172,19 @@ class GumbelTest(equivalence.EquivalenceTest):
       ('cross-ent tfp_to_distrax', 'cross_entropy', 'tfp_to_distrax')
   )
   def test_with_two_distributions(self, function_string, mode_string):
+    rng = np.random.default_rng(2023)
     super()._test_with_two_distributions(
         attribute_string=function_string,
         mode_string=mode_string,
         dist1_kwargs={
-            'loc': np.array(np.random.randn(4, 1, 2), dtype=np.float32),
+            'loc': rng.normal(size=(4, 1, 2)).astype(np.float32),
             'scale': np.array([[0.8, 0.2], [0.1, 1.2], [1.4, 3.1]],
                               dtype=np.float32),
         },
         dist2_kwargs={
-            'loc': np.array(np.random.randn(3, 2), dtype=np.float32),
-            'scale': 0.1 + np.array(np.random.rand(4, 1, 2), dtype=np.float32),
+            'loc': rng.normal(size=(3, 2)).astype(np.float32),
+            'scale': 0.1 + np.array(rng.uniform(size=(4, 1, 2)),
+                                    dtype=np.float32),
         },
         assertion_fn=self.assertion_fn(rtol=6e-2))
 
@@ -195,15 +199,17 @@ class GumbelTest(equivalence.EquivalenceTest):
       ('ellipsis', (Ellipsis, -1)),
   )
   def test_slice(self, slice_):
-    loc = jnp.array(np.random.randn(3, 4, 5))
-    scale = jnp.array(0.1 + np.random.rand(3, 4, 5))
+    rng = np.random.default_rng(2023)
+    loc = jnp.array(rng.normal(size=(3, 4, 5)))
+    scale = jnp.array(0.1 + rng.uniform(size=(3, 4, 5)))
     dist = self.distrax_cls(loc=loc, scale=scale)
     self.assertion_fn(rtol=3e-2)(dist[slice_].loc, loc[slice_])
     self.assertion_fn(rtol=3e-2)(dist[slice_].scale, scale[slice_])
 
   def test_slice_different_parameterization(self):
-    loc = jnp.array(np.random.randn(4))
-    scale = jnp.array(0.1 + np.random.rand(3, 4))
+    rng = np.random.default_rng(2023)
+    loc = jnp.array(rng.normal(size=(4,)))
+    scale = jnp.array(0.1 + rng.uniform(size=(3, 4)))
     dist = self.distrax_cls(loc=loc, scale=scale)
     self.assertion_fn(rtol=3e-2)(dist[0].loc, loc)  # Not slicing loc.
     self.assertion_fn(rtol=3e-2)(dist[0].scale, scale[0])

@@ -20,6 +20,7 @@ from absl.testing import parameterized
 import chex
 from distrax._src.distributions import laplace
 from distrax._src.utils import equivalence
+import jax.experimental
 import jax.numpy as jnp
 import numpy as np
 
@@ -65,11 +66,12 @@ class LaplaceTest(equivalence.EquivalenceTest):
       ('float32', jnp.float32),
       ('float64', jnp.float64))
   def test_sample_dtype(self, dtype):
-    dist = self.distrax_cls(
-        loc=jnp.zeros((), dtype), scale=jnp.ones((), dtype))
-    samples = self.variant(dist.sample)(seed=self.key)
-    self.assertEqual(samples.dtype, dist.dtype)
-    chex.assert_type(samples, dtype)
+    with jax.experimental.enable_x64(dtype.dtype.itemsize == 8):
+      dist = self.distrax_cls(
+          loc=jnp.zeros((), dtype), scale=jnp.ones((), dtype))
+      samples = self.variant(dist.sample)(seed=self.key)
+      self.assertEqual(samples.dtype, dist.dtype)
+      chex.assert_type(samples, dtype)
 
   @chex.all_variants
   @parameterized.named_parameters(
@@ -171,6 +173,26 @@ class LaplaceTest(equivalence.EquivalenceTest):
     value = np.asarray(value, dtype=np.float32)
     super()._test_attribute(
         attribute_string='log_cdf',
+        dist_args=distr_params,
+        call_args=(value,),
+        assertion_fn=self.assertion_fn(rtol=2e-2))
+
+  @chex.all_variants
+  @parameterized.named_parameters(
+      ('1d dist, 1d value', (0, 1), 1),
+      ('1d dist, 2d value', (0.5, 0.1), np.array([1, 2])),
+      ('1d dist, 2d value as list', (0.5, 0.1), [1, 2]),
+      ('2d dist, 1d value', (0.5 + np.zeros(2), 0.3 * np.ones(2)), 1),
+      ('2d broadcasted dist, 1d value', (np.zeros(2), 0.8), 1),
+      ('2d dist, 2d value', ([0.1, -0.5], 0.9 * np.ones(2)), np.array([1, 2])),
+      ('1d dist, 1d value, edge case', (0, 1), -200),
+  )
+  def test_log_survival_function(self, distr_params, value):
+    distr_params = (np.asarray(distr_params[0], dtype=np.float32),
+                    np.asarray(distr_params[1], dtype=np.float32))
+    value = np.asarray(value, dtype=np.float32)
+    super()._test_attribute(
+        attribute_string='log_survival_function',
         dist_args=distr_params,
         call_args=(value,),
         assertion_fn=self.assertion_fn(rtol=2e-2))
